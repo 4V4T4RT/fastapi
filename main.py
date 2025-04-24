@@ -21,7 +21,6 @@ app = FastAPI()
 async def root():
     return {"message": "Hello World"}
 
-# ← ajoutez ceci
 @app.get("/health")
 async def health():
     return {"status": "ok"}
