@@ -1,51 +1,43 @@
+import os
+import hmac
+import hashlib
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Header, HTTPException
 
 app = FastAPI()
 
-@app.get("/health")
-async def Healt():
-    return {"status": "ok"}
+GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "<votre_secret>")
 
-    from fastapi import FastAPI, Request, HTTPException
-import os, hmac, hashlib
-
-app = FastAPI()
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
+def verify_signature(raw_body: bytes, signature_header: str):
+    sha_name, signature = signature_header.split("=", 1)
+    if sha_name not in ("sha1", "sha256"):
+        return False
+    mac = hmac.new(
+        GITHUB_WEBHOOK_SECRET.encode(),
+        msg=raw_body,
+        digestmod=getattr(hashlib, sha_name)
+    )
+    return hmac.compare_digest(mac.hexdigest(), signature)
 
 @app.post("/webhook")
-async def github_webhook(request: Request):
-    secret = os.getenv("GITHUB_APP_WEBHOOK_SECRET", "")
-    if not secret:
-        raise HTTPException(status_code=500, detail="Webhook secret not set")
-
-    signature = request.headers.get("X-Hub-Signature-256", "")
+async def github_webhook(
+    request: Request,
+    x_hub_signature: str = Header(None),
+    x_hub_signature_256: str = Header(None),
+    x_github_event: str = Header(None),
+):
     body = await request.body()
-
-    mac = hmac.new(secret.encode(), body, hashlib.sha256)
-    expected_sig = f"sha256={mac.hexdigest()}"
-    if not hmac.compare_digest(expected_sig, signature):
+    sig = x_hub_signature_256 or x_hub_signature
+    if not sig or not verify_signature(body, sig):
         raise HTTPException(status_code=401, detail="Invalid signature")
-
     payload = await request.json()
-    event = request.headers.get("X-GitHub-Event", "unknown")
-
-    print(f"Received GitHub event: {event}")
-    print(payload)
-
-    return {"status": "received", "event": event}
-
-@app.get("/items/{item_id}")
-def read_item(item_id: int, q: Optional[str] = None):
-    return {"item_id": item_id, "q": q}
-    
-    from fastapi import FastAPI
-
-app = FastAPI()
+    if x_github_event == "ping":
+        return {"msg": "pong"}
+    if x_github_event == "installation":
+        action = payload.get("action")
+        return {"msg": f"Installation event received: {action}"}
+    return {"msg": f"Event {x_github_event} received"}
 
 @app.get("/")
 async def root():
